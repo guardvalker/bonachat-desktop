@@ -29,6 +29,8 @@ function qualityMenuItems() {
 ipcMain.on('bona:share-quality', (e) => { e.returnValue = QUALITIES[quality || loadQuality()].value; });
 
 const URL_BASE = 'https://cachyos-bona.tail92d31a.ts.net/';
+const ORIGIN_BASE = new URL(URL_BASE).origin;
+const isOwnUrl = (u) => { try { return new URL(u).origin === ORIGIN_BASE; } catch { return false; } };
 let win, tray, quitting = false;
 
 // Wayland: usar el portal de PipeWire para capturar pantalla/ventanas (sin esto la captura sale negra o falla).
@@ -49,8 +51,14 @@ function createWindow() {
   win.loadURL(URL_BASE);
   // Links externos al navegador del sistema
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith(URL_BASE)) { shell.openExternal(url); return { action: 'deny' }; }
+    if (!isOwnUrl(url)) { if (/^https?:/i.test(url)) shell.openExternal(url); return { action: 'deny' }; }
     return { action: 'allow' };
+  });
+  // La ventana nunca sale de nuestro origen: links/redirecciones externas van al navegador del sistema
+  win.webContents.on('will-navigate', (e, url) => {
+    if (isOwnUrl(url)) return;
+    e.preventDefault();
+    if (/^https?:/i.test(url)) shell.openExternal(url);
   });
   // Si falla la carga (Tailscale caído), reintentar
   win.webContents.on('did-fail-load', (_e, code, desc, _u, isMain) => {
@@ -66,12 +74,16 @@ function createWindow() {
 app.whenReady().then(() => {
   quality = loadQuality();
   // Cámara, micrófono, notificaciones y pantalla (llamadas)
+  const PERMS = ['media', 'notifications', 'display-capture', 'clipboard-sanitized-write', 'fullscreen'];
   session.defaultSession.setPermissionRequestHandler((wc, perm, cb) =>
-    cb(['media', 'notifications', 'display-capture', 'clipboard-sanitized-write', 'fullscreen'].includes(perm)));
+    cb(PERMS.includes(perm) && isOwnUrl(wc.getURL())));
+  session.defaultSession.setPermissionCheckHandler((wc, perm, origin) =>
+    PERMS.includes(perm) && isOwnUrl(origin));
   // Compartir pantalla: en Wayland el portal del sistema ya muestra su propio selector (llega una sola fuente);
   // en X11 se arma un menú con las pantallas y ventanas disponibles.
-  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
+      if (!isOwnUrl(request.securityOrigin || '')) return callback({});
       let done = false;
       const finish = (r) => { if (!done) { done = true; callback(r); } };
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 160, height: 90 } });
