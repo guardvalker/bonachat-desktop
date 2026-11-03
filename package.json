@@ -1,7 +1,7 @@
 {
   "name": "bonachat-desktop",
   "productName": "BonaChat",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Cliente de escritorio de BonaChat",
   "main": "main.js",
   "author": "guardvalker",
