@@ -1,5 +1,32 @@
-const { app, BrowserWindow, Tray, Menu, shell, session, nativeImage, desktopCapturer } = require('electron');
+const { app, BrowserWindow, Tray, Menu, shell, session, nativeImage, desktopCapturer, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
+
+// Calidad de pantalla compartida (resolución máxima y fps). 'auto' = la que decida la app de llamadas.
+const QUALITIES = {
+  auto: { label: 'Automática', value: null },
+  '720p30': { label: '720p · 30 fps', value: { width: 1280, height: 720, fps: 30 } },
+  '1080p30': { label: '1080p · 30 fps', value: { width: 1920, height: 1080, fps: 30 } },
+  '1080p60': { label: '1080p · 60 fps', value: { width: 1920, height: 1080, fps: 60 } },
+  '1440p30': { label: '1440p · 30 fps', value: { width: 2560, height: 1440, fps: 30 } },
+  '2160p30': { label: '4K · 30 fps', value: { width: 3840, height: 2160, fps: 30 } },
+};
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
+function loadQuality() {
+  try { const q = JSON.parse(fs.readFileSync(settingsFile(), 'utf8')).quality; if (QUALITIES[q]) return q; } catch (_) {}
+  return '1080p30';
+}
+let quality = null;
+function setQuality(q) {
+  quality = q;
+  try { fs.writeFileSync(settingsFile(), JSON.stringify({ quality: q })); } catch (_) {}
+}
+function qualityMenuItems() {
+  return Object.entries(QUALITIES).map(([id, q]) => ({
+    label: q.label, type: 'radio', checked: quality === id, click: () => setQuality(id),
+  }));
+}
+ipcMain.on('bona:share-quality', (e) => { e.returnValue = QUALITIES[quality || loadQuality()].value; });
 
 const URL_BASE = 'https://cachyos-bona.tail92d31a.ts.net/';
 let win, tray, quitting = false;
@@ -7,6 +34,8 @@ let win, tray, quitting = false;
 // Wayland: usar el portal de PipeWire para capturar pantalla/ventanas (sin esto la captura sale negra o falla).
 app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+// Evita los errores de buffers GPU (gbm_pixmap_wayland) al renderizar video en Wayland.
+app.commandLine.appendSwitch('disable-gpu-memory-buffer-video-frames');
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 app.on('second-instance', () => { if (win) { win.show(); win.focus(); } });
@@ -15,7 +44,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 820, backgroundColor: '#11111b', autoHideMenuBar: true,
     icon: path.join(__dirname, 'build/icon.png'),
-    webPreferences: { contextIsolation: true, sandbox: true },
+    webPreferences: { contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js'), nodeIntegrationInSubFrames: true },
   });
   win.loadURL(URL_BASE);
   // Links externos al navegador del sistema
@@ -35,6 +64,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  quality = loadQuality();
   // Cámara, micrófono, notificaciones y pantalla (llamadas)
   session.defaultSession.setPermissionRequestHandler((wc, perm, cb) =>
     cb(['media', 'notifications', 'display-capture', 'clipboard-sanitized-write', 'fullscreen'].includes(perm)));
@@ -49,6 +79,8 @@ app.whenReady().then(() => {
       if (sources.length === 1) return finish({ video: sources[0] });
       const menu = Menu.buildFromTemplate([
         { label: 'Compartir…', enabled: false },
+        { label: 'Calidad', submenu: qualityMenuItems() },
+        { type: 'separator' },
         ...sources.map((src) => ({
           label: src.name.slice(0, 60),
           icon: src.thumbnail.isEmpty() ? undefined : src.thumbnail.resize({ width: 48 }),
@@ -68,6 +100,7 @@ app.whenReady().then(() => {
   tray.setToolTip('BonaChat');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Abrir BonaChat', click: () => { win.show(); win.focus(); } },
+    { label: 'Calidad de pantalla compartida', submenu: qualityMenuItems() },
     { label: 'Salir', click: () => { quitting = true; app.quit(); } },
   ]));
   tray.on('click', () => { win.isVisible() ? win.hide() : (win.show(), win.focus()); });
