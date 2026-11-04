@@ -14,6 +14,8 @@ webFrame.executeJavaScript(`(() => {
     let q = null;
     try { q = window.__bonaShare && window.__bonaShare.quality(); } catch (e) {}
     const cons = c && typeof c === 'object' ? { ...c } : {};
+    // Audio del sistema sin el de la propia app: así los demás no se escuchan a sí mismos por la pantalla compartida.
+    if (cons.audio) cons.audio = { ...(typeof cons.audio === 'object' ? cons.audio : {}), restrictOwnAudio: true, suppressLocalAudioPlayback: true };
     if (q) {
       const v = cons.video && typeof cons.video === 'object' ? cons.video : {};
       cons.video = { ...v, width: { ideal: q.width }, height: { ideal: q.height }, frameRate: { ideal: q.fps } };

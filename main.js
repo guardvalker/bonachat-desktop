@@ -34,7 +34,8 @@ const isOwnUrl = (u) => { try { return new URL(u).origin === ORIGIN_BASE; } catc
 let win, tray, quitting = false;
 
 // Wayland: usar el portal de PipeWire para capturar pantalla/ventanas (sin esto la captura sale negra o falla).
-app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
+// PulseaudioLoopbackForScreenShare: permite capturar el audio del sistema al compartir pantalla (Linux).
+app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,PulseaudioLoopbackForScreenShare');
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
 // Evita los errores de buffers GPU (gbm_pixmap_wayland) al renderizar video en Wayland.
 app.commandLine.appendSwitch('disable-gpu-memory-buffer-video-frames');
@@ -88,7 +89,7 @@ app.whenReady().then(() => {
       const finish = (r) => { if (!done) { done = true; callback(r); } };
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 160, height: 90 } });
       if (sources.length === 0) return finish({});
-      if (sources.length === 1) return finish({ video: sources[0] });
+      if (sources.length === 1) return finish({ video: sources[0], audio: 'loopback' });
       const menu = Menu.buildFromTemplate([
         { label: 'Compartir…', enabled: false },
         { label: 'Calidad', submenu: qualityMenuItems() },
@@ -96,7 +97,7 @@ app.whenReady().then(() => {
         ...sources.map((src) => ({
           label: src.name.slice(0, 60),
           icon: src.thumbnail.isEmpty() ? undefined : src.thumbnail.resize({ width: 48 }),
-          click: () => finish({ video: src }),
+          click: () => finish({ video: src, audio: 'loopback' }),
         })),
         { type: 'separator' },
         { label: 'Cancelar', click: () => finish({}) },
