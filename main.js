@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, shell, session, nativeImage, desktopCapturer, ipcMain } = require('electron');
+const { app, screen, BrowserWindow, Tray, Menu, shell, session, nativeImage, desktopCapturer, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -17,9 +17,26 @@ function loadQuality() {
   return '1080p30';
 }
 let quality = null;
+function readSettings() {
+  try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) || {}; } catch (_) { return {}; }
+}
+function writeSettings(patch) {
+  try { fs.writeFileSync(settingsFile(), JSON.stringify({ ...readSettings(), ...patch })); } catch (_) {}
+}
 function setQuality(q) {
   quality = q;
-  try { fs.writeFileSync(settingsFile(), JSON.stringify({ quality: q })); } catch (_) {}
+  writeSettings({ quality: q });
+}
+// Tamaño/posición de la ventana: se guarda al cerrar y se restaura al abrir (si sigue cabiendo en alguna pantalla).
+function loadWindowState() {
+  const b = readSettings().window;
+  if (b && b.maximized && !(b.width > 200)) return { maximized: true };
+  if (!b || !(b.width > 200) || !(b.height > 200)) return null;
+  const visible = screen.getAllDisplays().some((d) => {
+    const a = d.workArea;
+    return b.x < a.x + a.width - 50 && b.x + b.width > a.x + 50 && b.y < a.y + a.height - 50 && b.y + b.height > a.y;
+  });
+  return visible ? b : { width: b.width, height: b.height, maximized: b.maximized };
 }
 function qualityMenuItems() {
   return Object.entries(QUALITIES).map(([id, q]) => ({
@@ -44,11 +61,27 @@ if (!app.requestSingleInstanceLock()) { app.quit(); }
 app.on('second-instance', () => { if (win) { win.show(); win.focus(); } });
 
 function createWindow() {
+  const saved = loadWindowState();
   win = new BrowserWindow({
-    width: 1280, height: 820, backgroundColor: '#11111b', autoHideMenuBar: true,
+    width: 1280, height: 820, ...(saved && saved.width ? { width: saved.width, height: saved.height } : {}),
+    ...(saved && saved.x !== undefined ? { x: saved.x, y: saved.y } : {}), backgroundColor: '#11111b', autoHideMenuBar: true,
     icon: path.join(__dirname, 'build/icon.png'),
     webPreferences: { contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js'), nodeIntegrationInSubFrames: true },
   });
+  if (saved && saved.maximized) win.maximize();
+  const saveWindowState = () => {
+    if (!win || win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return;
+    const maximized = win.isMaximized();
+    // Maximizada: se conserva el último tamaño normal en vez del de pantalla completa.
+    const bounds = maximized ? (readSettings().window || {}) : win.getBounds();
+    writeSettings({ window: { ...bounds, maximized } });
+  };
+  let saveTimer = null;
+  const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveWindowState, 500); };
+  win.on('resize', saveSoon);
+  win.on('move', saveSoon);
+  win.on('maximize', saveSoon);
+  win.on('unmaximize', saveSoon);
   win.loadURL(URL_BASE);
   // Links externos al navegador del sistema
   win.webContents.setWindowOpenHandler(({ url }) => {
