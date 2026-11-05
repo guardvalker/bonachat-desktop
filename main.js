@@ -1,4 +1,4 @@
-const { app, screen, BrowserWindow, Tray, Menu, shell, session, nativeImage, desktopCapturer, ipcMain } = require('electron');
+const { app, screen, dialog, BrowserWindow, Tray, Menu, shell, session, nativeImage, desktopCapturer, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -43,6 +43,75 @@ function qualityMenuItems() {
     label: q.label, type: 'radio', checked: quality === id, click: () => setQuality(id),
   }));
 }
+// ---- Carpeta compartida: la app web (BonaChat) la expone a los demás a través del servidor ----
+function shareRoot() { return readSettings().shareFolder || null; }
+function splitPath(rel) { return String(rel || '').split('/').filter(Boolean); }
+function inShare(rel) {
+  const root = shareRoot();
+  if (!root) throw new Error('No hay carpeta compartida');
+  const parts = splitPath(rel);
+  if (parts.some((p) => p === '..' || p === '.' || p.includes('\\'))) throw new Error('ruta inválida');
+  const abs = path.resolve(root, ...parts);
+  if (abs !== root && !abs.startsWith(root + path.sep)) throw new Error('ruta inválida');
+  // los enlaces simbólicos no pueden sacar de la carpeta
+  try {
+    const real = fs.realpathSync(abs);
+    const realRoot = fs.realpathSync(root);
+    if (real !== realRoot && !real.startsWith(realRoot + path.sep)) throw new Error('ruta inválida');
+  } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  return abs;
+}
+const uploads = new Map();
+ipcMain.handle('bonafs:current', () => { const r = shareRoot(); return r ? path.basename(r) : null; });
+ipcMain.handle('bonafs:pick', async () => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], title: 'Elegí la carpeta a compartir' });
+  if (r.canceled || !r.filePaths[0]) return null;
+  writeSettings({ shareFolder: r.filePaths[0] });
+  return path.basename(r.filePaths[0]);
+});
+ipcMain.handle('bonafs:clear', () => { writeSettings({ shareFolder: null }); });
+ipcMain.handle('bonafs:list', async (_e, rel) => {
+  const dir = inShare(rel);
+  const out = [];
+  for (const d of await fs.promises.readdir(dir, { withFileTypes: true })) {
+    const st = await fs.promises.stat(path.join(dir, d.name)).catch(() => null);
+    if (st) out.push({ name: d.name, dir: d.isDirectory(), size: st.size, mtime: st.mtimeMs });
+  }
+  return out;
+});
+ipcMain.handle('bonafs:stat', async (_e, rel) => { const st = await fs.promises.stat(inShare(rel)); return { dir: st.isDirectory(), size: st.size, mtime: st.mtimeMs }; });
+ipcMain.handle('bonafs:read', async (_e, rel, offset, length) => {
+  const fh = await fs.promises.open(inShare(rel), 'r');
+  try { const buf = Buffer.alloc(length); const { bytesRead } = await fh.read(buf, 0, length, offset); return new Uint8Array(buf.buffer, buf.byteOffset, bytesRead); }
+  finally { await fh.close(); }
+});
+ipcMain.handle('bonafs:write', async (_e, rel, name, uploadId, offset, data, last) => {
+  let u = uploads.get(uploadId);
+  if (!u) {
+    const dir = inShare(rel);
+    const ext = path.extname(name); const base = name.slice(0, name.length - ext.length);
+    let finalName = name;
+    for (let i = 1; fs.existsSync(path.join(dir, finalName)); i++) finalName = `${base} (${i})${ext}`;
+    u = { fh: await fs.promises.open(path.join(dir, finalName), 'wx'), name: finalName, file: path.join(dir, finalName) };
+    uploads.set(uploadId, u);
+  }
+  await u.fh.write(Buffer.from(data), 0, data.length, offset);
+  if (last) { await u.fh.close(); uploads.delete(uploadId); return u.name; }
+  return undefined;
+});
+ipcMain.handle('bonafs:abortWrite', async (_e, uploadId) => {
+  const u = uploads.get(uploadId); if (!u) return;
+  uploads.delete(uploadId); await u.fh.close().catch(() => {}); await fs.promises.rm(u.file, { force: true });
+});
+ipcMain.handle('bonafs:mkdir', async (_e, rel, name) => { await fs.promises.mkdir(path.join(inShare(rel), path.basename(name)), { recursive: true }); });
+ipcMain.handle('bonafs:rename', async (_e, rel, newName) => {
+  const abs = inShare(rel);
+  const dest = path.join(path.dirname(abs), path.basename(newName));
+  if (fs.existsSync(dest)) throw new Error('ya existe ese nombre');
+  await fs.promises.rename(abs, dest);
+});
+ipcMain.handle('bonafs:remove', async (_e, rel) => { const abs = inShare(rel); if (abs === fs.realpathSync(shareRoot())) throw new Error('no se puede borrar la carpeta raíz'); await fs.promises.rm(abs, { recursive: true }); });
+
 ipcMain.on('bona:share-quality', (e) => { e.returnValue = QUALITIES[quality || loadQuality()].value; });
 
 const URL_BASE = 'https://cachyos-bona.tail92d31a.ts.net/';
