@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('__bonaShare', {
 const call = (name) => (...args) => ipcRenderer.invoke('bonafs:' + name, ...args);
 contextBridge.exposeInMainWorld('bonaFS', {
   current: call('current'), pick: call('pick'), clear: call('clear'),
-  list: call('list'), stat: call('stat'), read: call('read'), write: call('write'), abortWrite: call('abortWrite'),
+  list: call('list'), stat: call('stat'), read: call('read'), write: call('write'), abortWrite: call('abortWrite'), abortAll: call('abortAll'),
   mkdir: call('mkdir'), rename: call('rename'), remove: call('remove'),
 });
 

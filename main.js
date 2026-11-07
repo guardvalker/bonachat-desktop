@@ -62,6 +62,20 @@ function inShare(rel) {
   return abs;
 }
 const uploads = new Map();
+// Un nombre de archivo nunca es una ruta: sin separadores, sin puntos al inicio (no se crean ocultos ni se sale de la carpeta).
+function safeName(n) {
+  const s = path.basename(String(n || '')).replace(/[\\/\x00-\x1f]/g, '_').replace(/^\.+/, '_').trim();
+  if (!s) throw new Error('nombre inválido');
+  return s.slice(0, 200);
+}
+// Las rutas pedidas por otros no pueden apuntar a archivos ocultos (.git, .env, .ssh…).
+function visiblePath(rel) {
+  if (splitPath(rel).some((p) => p.startsWith('.'))) throw new Error('ruta inválida');
+  return inShare(rel);
+}
+async function abortAllUploads() {
+  for (const [id, u] of [...uploads]) { uploads.delete(id); await u.fh.close().catch(() => {}); await fs.promises.rm(u.file, { force: true }).catch(() => {}); }
+}
 ipcMain.handle('bonafs:current', () => { const r = shareRoot(); return r ? path.basename(r) : null; });
 ipcMain.handle('bonafs:pick', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], title: 'Elegí la carpeta a compartir' });
@@ -71,24 +85,26 @@ ipcMain.handle('bonafs:pick', async () => {
 });
 ipcMain.handle('bonafs:clear', () => { writeSettings({ shareFolder: null }); });
 ipcMain.handle('bonafs:list', async (_e, rel) => {
-  const dir = inShare(rel);
+  const dir = visiblePath(rel);
   const out = [];
   for (const d of await fs.promises.readdir(dir, { withFileTypes: true })) {
+    if (d.name.startsWith('.')) continue;
     const st = await fs.promises.stat(path.join(dir, d.name)).catch(() => null);
     if (st) out.push({ name: d.name, dir: d.isDirectory(), size: st.size, mtime: st.mtimeMs });
   }
   return out;
 });
-ipcMain.handle('bonafs:stat', async (_e, rel) => { const st = await fs.promises.stat(inShare(rel)); return { dir: st.isDirectory(), size: st.size, mtime: st.mtimeMs }; });
+ipcMain.handle('bonafs:stat', async (_e, rel) => { const st = await fs.promises.stat(visiblePath(rel)); return { dir: st.isDirectory(), size: st.size, mtime: st.mtimeMs }; });
 ipcMain.handle('bonafs:read', async (_e, rel, offset, length) => {
-  const fh = await fs.promises.open(inShare(rel), 'r');
+  const fh = await fs.promises.open(visiblePath(rel), 'r');
   try { const buf = Buffer.alloc(length); const { bytesRead } = await fh.read(buf, 0, length, offset); return new Uint8Array(buf.buffer, buf.byteOffset, bytesRead); }
   finally { await fh.close(); }
 });
 ipcMain.handle('bonafs:write', async (_e, rel, name, uploadId, offset, data, last) => {
   let u = uploads.get(uploadId);
   if (!u) {
-    const dir = inShare(rel);
+    const dir = visiblePath(rel);
+    name = safeName(name);
     const ext = path.extname(name); const base = name.slice(0, name.length - ext.length);
     let finalName = name;
     for (let i = 1; fs.existsSync(path.join(dir, finalName)); i++) finalName = `${base} (${i})${ext}`;
@@ -99,18 +115,20 @@ ipcMain.handle('bonafs:write', async (_e, rel, name, uploadId, offset, data, las
   if (last) { await u.fh.close(); uploads.delete(uploadId); return u.name; }
   return undefined;
 });
+ipcMain.handle('bonafs:abortAll', () => abortAllUploads());
 ipcMain.handle('bonafs:abortWrite', async (_e, uploadId) => {
   const u = uploads.get(uploadId); if (!u) return;
   uploads.delete(uploadId); await u.fh.close().catch(() => {}); await fs.promises.rm(u.file, { force: true });
 });
-ipcMain.handle('bonafs:mkdir', async (_e, rel, name) => { await fs.promises.mkdir(path.join(inShare(rel), path.basename(name)), { recursive: true }); });
+ipcMain.handle('bonafs:mkdir', async (_e, rel, name) => { await fs.promises.mkdir(path.join(visiblePath(rel), safeName(name)), { recursive: true }); });
 ipcMain.handle('bonafs:rename', async (_e, rel, newName) => {
-  const abs = inShare(rel);
-  const dest = path.join(path.dirname(abs), path.basename(newName));
+  const abs = visiblePath(rel);
+  if (abs === fs.realpathSync(shareRoot())) throw new Error('no se puede renombrar la carpeta raíz');
+  const dest = path.join(path.dirname(abs), safeName(newName));
   if (fs.existsSync(dest)) throw new Error('ya existe ese nombre');
   await fs.promises.rename(abs, dest);
 });
-ipcMain.handle('bonafs:remove', async (_e, rel) => { const abs = inShare(rel); if (abs === fs.realpathSync(shareRoot())) throw new Error('no se puede borrar la carpeta raíz'); await fs.promises.rm(abs, { recursive: true }); });
+ipcMain.handle('bonafs:remove', async (_e, rel) => { const abs = visiblePath(rel); if (abs === fs.realpathSync(shareRoot())) throw new Error('no se puede borrar la carpeta raíz'); await fs.promises.rm(abs, { recursive: true }); });
 
 ipcMain.on('bona:share-quality', (e) => { e.returnValue = QUALITIES[quality || loadQuality()].value; });
 
