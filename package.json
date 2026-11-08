@@ -1,14 +1,15 @@
 {
   "name": "bonachat-desktop",
   "productName": "BonaChat",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Cliente de escritorio de BonaChat",
   "main": "main.js",
   "author": "guardvalker",
   "license": "AGPL-3.0-only",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --linux AppImage"
+    "dist": "electron-builder --linux AppImage",
+    "dist:win": "electron-builder --win nsis portable"
   },
   "build": {
     "appId": "com.guardvalker.bonachat.desktop",
@@ -25,7 +26,22 @@
       "category": "Network",
       "icon": "build/icon.png"
     },
-    "artifactName": "BonaChat-${version}.${ext}"
+    "artifactName": "BonaChat-${version}.${ext}",
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "BonaChat-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "BonaChat-${version}-portable.${ext}"
+    }
   },
   "devDependencies": {
     "electron": "^45.0.0",

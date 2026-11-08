@@ -66,7 +66,10 @@ const uploads = new Map();
 function safeName(n) {
   const s = path.basename(String(n || '')).replace(/[\\/\x00-\x1f]/g, '_').replace(/^\.+/, '_').trim();
   if (!s) throw new Error('nombre inválido');
-  return s.slice(0, 200);
+  // Windows: sin caracteres prohibidos, sin punto/espacio final ni nombres reservados (CON, NUL, COM1…).
+  const w = s.replace(/[<>:"|?*]/g, '_').replace(/[. ]+$/, '').replace(/^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i, '_$1$2');
+  if (!w) throw new Error('nombre inválido');
+  return w.slice(0, 200);
 }
 // Las rutas pedidas por otros no pueden apuntar a archivos ocultos (.git, .env, .ssh…).
 function visiblePath(rel) {
@@ -139,10 +142,14 @@ let win, tray, quitting = false;
 
 // Wayland: usar el portal de PipeWire para capturar pantalla/ventanas (sin esto la captura sale negra o falla).
 // PulseaudioLoopbackForScreenShare: permite capturar el audio del sistema al compartir pantalla (Linux).
-app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,PulseaudioLoopbackForScreenShare');
-app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
-// Evita los errores de buffers GPU (gbm_pixmap_wayland) al renderizar video en Wayland.
-app.commandLine.appendSwitch('disable-gpu-memory-buffer-video-frames');
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer,PulseaudioLoopbackForScreenShare');
+  app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
+  // Evita los errores de buffers GPU (gbm_pixmap_wayland) al renderizar video en Wayland.
+  app.commandLine.appendSwitch('disable-gpu-memory-buffer-video-frames');
+}
+// Windows: identidad de la app para notificaciones y barra de tareas.
+if (process.platform === 'win32') app.setAppUserModelId('com.guardvalker.bonachat.desktop');
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 app.on('second-instance', () => { if (win) { win.show(); win.focus(); } });
