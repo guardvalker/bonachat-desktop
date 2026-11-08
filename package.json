@@ -8,8 +8,8 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --linux AppImage",
-    "dist:win": "electron-builder --win nsis portable"
+    "dist": "electron-builder --linux AppImage --publish never",
+    "dist:win": "electron-builder --win nsis portable --publish never"
   },
   "build": {
     "appId": "com.guardvalker.bonachat.desktop",
