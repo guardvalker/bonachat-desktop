@@ -1,4 +1,4 @@
-const { app, screen, dialog, BrowserWindow, Tray, Menu, shell, session, nativeImage, desktopCapturer, ipcMain } = require('electron');
+const { app, Notification, screen, dialog, BrowserWindow, Tray, Menu, shell, session, nativeImage, desktopCapturer, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -209,6 +209,15 @@ function createWindow() {
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } });
 }
 
+function buildTrayMenu() {
+  return Menu.buildFromTemplate([
+    { label: 'Abrir BonaChat', click: () => { win.show(); win.focus(); } },
+    ...(updateReady ? [{ label: 'Reiniciar y actualizar a ' + updateReady, click: () => global.__bonaInstallUpdate && global.__bonaInstallUpdate() }] : []),
+    { label: 'Calidad de pantalla compartida', submenu: qualityMenuItems() },
+    audioMenuItem(),
+    { label: 'Salir', click: () => { quitting = true; app.quit(); } },
+  ]);
+}
 app.whenReady().then(() => {
   quality = loadQuality();
   // Cámara, micrófono, notificaciones y pantalla (llamadas)
@@ -247,14 +256,32 @@ app.whenReady().then(() => {
     }
   });
   createWindow();
+  setupAutoUpdate();
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'build/tray.png')).resize({ width: 24, height: 24 }));
   tray.setToolTip('BonaChat');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Abrir BonaChat', click: () => { win.show(); win.focus(); } },
-    { label: 'Calidad de pantalla compartida', submenu: qualityMenuItems() },
-    audioMenuItem(),
-    { label: 'Salir', click: () => { quitting = true; app.quit(); } },
-  ]));
+  tray.setContextMenu(buildTrayMenu());
   tray.on('click', () => { win.isVisible() ? win.hide() : (win.show(), win.focus()); });
 });
 app.on('before-quit', () => { quitting = true; });
+
+// ---- Actualización automática (releases de GitHub: guardvalker/bonachat-desktop) ----
+// Chequea al abrir y cada 3 h, baja sola y se instala al salir de BonaChat. Desde la bandeja se puede reiniciar ya.
+let updateReady = null;
+function setupAutoUpdate() {
+  if (!app.isPackaged) return;
+  if (process.platform === 'linux' && !process.env.APPIMAGE) return;
+  let autoUpdater;
+  try { ({ autoUpdater } = require('electron-updater')); } catch (_) { return; }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('update-downloaded', (info) => {
+    updateReady = info.version;
+    try { new Notification({ title: 'BonaChat ' + info.version, body: 'Actualización lista. Se instala al cerrar BonaChat (Salir en la bandeja) o con "Reiniciar y actualizar".' }).show(); } catch (_) {}
+    if (tray) tray.setContextMenu(buildTrayMenu());
+  });
+  autoUpdater.on('error', () => {});
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 10_000);
+  setInterval(check, 3 * 60 * 60 * 1000);
+  global.__bonaInstallUpdate = () => { quitting = true; autoUpdater.quitAndInstall(false, true); };
+}

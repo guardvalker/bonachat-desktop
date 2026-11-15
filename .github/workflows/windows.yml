@@ -34,4 +34,4 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "BonaChat Desktop ${TAG#v}" --notes ""
-          gh release upload "$TAG" dist/BonaChat-Setup-*.exe dist/BonaChat-*-portable.exe --clobber
+          gh release upload "$TAG" dist/BonaChat-Setup-*.exe dist/BonaChat-Setup-*.exe.blockmap dist/BonaChat-*-portable.exe dist/latest.yml --clobber

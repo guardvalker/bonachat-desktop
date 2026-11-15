@@ -1,7 +1,7 @@
 {
   "name": "bonachat-desktop",
   "productName": "BonaChat",
-  "version": "1.7.2",
+  "version": "1.8.0",
   "description": "Cliente de escritorio de BonaChat",
   "main": "main.js",
   "author": "guardvalker",
@@ -41,7 +41,14 @@
     },
     "portable": {
       "artifactName": "BonaChat-${version}-portable.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "guardvalker",
+        "repo": "bonachat-desktop"
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^45.0.0",
@@ -49,5 +56,8 @@
   },
   "allowScripts": {
     "electron@45.2.2": true
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }
