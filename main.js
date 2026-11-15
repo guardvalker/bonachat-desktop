@@ -38,6 +38,12 @@ function loadWindowState() {
   });
   return visible ? b : { width: b.width, height: b.height, maximized: b.maximized };
 }
+// Audio del sistema al compartir: apagado por defecto (el loopback captura TODO, incluidas las voces de la llamada = eco)
+const shareAudioOn = () => readSettings().shareAudio === true;
+const audioMenuItem = () => ({
+  label: 'Compartir audio del sistema (usar solo con auriculares; los demás oyen todo)',
+  type: 'checkbox', checked: shareAudioOn(), click: (i) => writeSettings({ shareAudio: i.checked }),
+});
 function qualityMenuItems() {
   return Object.entries(QUALITIES).map(([id, q]) => ({
     label: q.label, type: 'radio', checked: quality === id, click: () => setQuality(id),
@@ -216,15 +222,16 @@ app.whenReady().then(() => {
       const finish = (r) => { if (!done) { done = true; callback(r); } };
       const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 160, height: 90 } });
       if (sources.length === 0) return finish({});
-      if (sources.length === 1) return finish({ video: sources[0], audio: 'loopback' });
+      if (sources.length === 1) return finish({ video: sources[0], ...(shareAudioOn() ? { audio: 'loopback' } : {}) });
       const menu = Menu.buildFromTemplate([
         { label: 'Compartir…', enabled: false },
         { label: 'Calidad', submenu: qualityMenuItems() },
+        audioMenuItem(),
         { type: 'separator' },
         ...sources.map((src) => ({
           label: src.name.slice(0, 60),
           icon: src.thumbnail.isEmpty() ? undefined : src.thumbnail.resize({ width: 48 }),
-          click: () => finish({ video: src, audio: 'loopback' }),
+          click: () => finish({ video: src, ...(shareAudioOn() ? { audio: 'loopback' } : {}) }),
         })),
         { type: 'separator' },
         { label: 'Cancelar', click: () => finish({}) },
@@ -241,6 +248,7 @@ app.whenReady().then(() => {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Abrir BonaChat', click: () => { win.show(); win.focus(); } },
     { label: 'Calidad de pantalla compartida', submenu: qualityMenuItems() },
+    audioMenuItem(),
     { label: 'Salir', click: () => { quitting = true; app.quit(); } },
   ]));
   tray.on('click', () => { win.isVisible() ? win.hide() : (win.show(), win.focus()); });
