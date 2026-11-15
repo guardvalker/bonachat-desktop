@@ -153,6 +153,10 @@ if (process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
   // Evita los errores de buffers GPU (gbm_pixmap_wayland) al renderizar video en Wayland.
   app.commandLine.appendSwitch('disable-gpu-memory-buffer-video-frames');
+  // Llamadas: sin esto, con la ventana tapada (juego a pantalla completa, minimizada) Chromium frena el renderer y el procesamiento del micrófono
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
 }
 // Windows: identidad de la app para notificaciones y barra de tareas.
 if (process.platform === 'win32') app.setAppUserModelId('com.guardvalker.bonachat.desktop');
@@ -166,7 +170,7 @@ function createWindow() {
     width: 1280, height: 820, ...(saved && saved.width ? { width: saved.width, height: saved.height } : {}),
     ...(saved && saved.x !== undefined ? { x: saved.x, y: saved.y } : {}), backgroundColor: '#11111b', autoHideMenuBar: true,
     icon: path.join(__dirname, 'build/icon.png'),
-    webPreferences: { contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js'), nodeIntegrationInSubFrames: true },
+    webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js'), nodeIntegrationInSubFrames: true },
   });
   if (saved && saved.maximized) win.maximize();
   const saveWindowState = () => {
